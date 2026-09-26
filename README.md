@@ -13,13 +13,22 @@ you write is encrypted at rest behind a single master passphrase.
   before they touch disk (see [Encryption](#encryption) below).
 - **Sidebar of entries** — create, select, rename (via title), and delete
   journal entries from a simple list.
-- **Rich-text editor with autosave** — a formatting toolbar plus debounced
-  autosave, so edits are saved automatically ~1 second after you stop typing.
+- **Tags** — attach `#hashtag`-style tags to any entry. A handful of default
+  tags (`#drama`, `#boyfriend`, `#work`, `#family`, `#vent`, `#good day`) are
+  seeded on first launch; typing a tag that doesn't exist yet in the tag
+  field creates it on the spot and adds it to the vault-wide suggestion list.
+- **Rich-text editor with autosave** — a formatting toolbar (bold/italic/
+  underline/strikethrough, headings, lists, alignment, font family & size,
+  text color, highlight, blockquote, inline code, clear formatting,
+  undo/redo) plus debounced autosave, so edits are saved automatically
+  ~1 second after you stop typing.
 - **Skeuomorphic UI** — a procedurally painted wood-table backdrop, a journal
   "cover" card with a drop shadow, and a ribbon bookmark, all drawn with
   `QPainter` (no image assets to ship).
-- **Opening animation** — an optional cover-flip animation plays when the app
-  starts, toggleable in Settings.
+- **Opening animation** — an optional "book cover" animation plays when the
+  app starts: two pink cover panels sit closed over the window, then swing
+  open to either side, revealing the interface underneath. Toggleable in
+  Settings.
 - **Configurable settings** — autosave delay, opening animation on/off, and
   default editor font size, persisted to a local (unencrypted) preferences
   file.
@@ -62,9 +71,10 @@ your existing entries cannot be decrypted.
 | File | Purpose |
 |---|---|
 | `main.py` | App entry point; wires together unlock, main window, sidebar, editor, and animation. |
-| `database.py` | Encrypted storage layer (SQLite + Fernet field encryption). |
+| `database.py` | Encrypted storage layer (SQLite + Fernet field encryption); also stores entry tags and the vault-wide tag list. |
 | `editor.py` | Rich-text/Markdown page editor with formatting toolbar and debounced autosave. |
-| `animation.py` | The opening "journal cover" flip animation overlay. |
+| `tags.py` | The tag chip row: removable chips, autocomplete, and on-the-fly tag creation. |
+| `animation.py` | The opening two-panel "book cover" animation overlay. |
 | `theming.py` | Procedurally painted wood-table backdrop, journal cover card, and ribbon bookmark. |
 | `settings.py` | User-configurable settings (dataclass + JSON persistence) and the Settings dialog. |
 | `style.qss` | Qt stylesheet for the app's look and feel. |

@@ -4,10 +4,11 @@ debounced autosave.
 """
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QTextCharFormat, QTextCursor, QTextListFormat
+from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QTextCharFormat, QTextCursor, QTextListFormat
 from PySide6.QtWidgets import (
     QColorDialog,
     QComboBox,
+    QFontComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,16 +19,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from tags import TagInputWidget
+
 AUTOSAVE_DEBOUNCE_MS = 1000
 
 PASTEL_SWATCHES = ["#D46A8C", "#8C6A9E", "#5A8F7B", "#4A6FA5", "#B8860B"]
+HIGHLIGHT_SWATCHES = ["#FFF3B0", "#FFD1DC", "#C7F0D8", "#D6E4FF"]
 
 
 class EditorWidget(QWidget):
     """Emits contentDirty() immediately on edit, and saveRequested(title,
-    markdown) after the debounce window elapses with no further edits."""
+    markdown, tags) after the debounce window elapses with no further
+    edits. Also emits newTagCreated(tag) whenever the tag field is used
+    to coin a tag that isn't in the vault-wide tag list yet."""
 
-    saveRequested = Signal(str, str)
+    saveRequested = Signal(str, str, list)
+    newTagCreated = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,10 +57,26 @@ class EditorWidget(QWidget):
         self.title_edit.textChanged.connect(self._on_changed)
         root.addWidget(self.title_edit)
 
+        # --- Tags ----------------------------------------------------------
+        self.tag_input = TagInputWidget()
+        self.tag_input.tagsChanged.connect(self._on_changed)
+        self.tag_input.newTagCreated.connect(self.newTagCreated)
+        root.addWidget(self.tag_input)
+
         # --- Toolbar -----------------------------------------------------
         toolbar = QToolBar()
         toolbar.setObjectName("FormatToolbar")
         toolbar.setMovable(False)
+
+        undo_action = QAction("Undo", self)
+        undo_action.triggered.connect(lambda: self.body.undo())
+        toolbar.addAction(undo_action)
+
+        redo_action = QAction("Redo", self)
+        redo_action.triggered.connect(lambda: self.body.redo())
+        toolbar.addAction(redo_action)
+
+        toolbar.addSeparator()
 
         self.bold_action = QAction("B", self, checkable=True)
         self.bold_action.triggered.connect(self._toggle_bold)
@@ -116,6 +139,32 @@ class EditorWidget(QWidget):
         color_action.triggered.connect(self._pick_color)
         toolbar.addAction(color_action)
 
+        highlight_action = QAction("Highlight", self)
+        highlight_action.triggered.connect(self._pick_highlight)
+        toolbar.addAction(highlight_action)
+
+        toolbar.addSeparator()
+
+        self.font_box = QFontComboBox()
+        self.font_box.setMaximumWidth(150)
+        self.font_box.currentFontChanged.connect(self._apply_font_family)
+        toolbar.addWidget(self.font_box)
+
+        quote_action = QAction("Quote", self, checkable=True)
+        quote_action.triggered.connect(self._toggle_quote)
+        toolbar.addAction(quote_action)
+
+        code_action = QAction("Code", self, checkable=True)
+        code_action.triggered.connect(self._toggle_code)
+        toolbar.addAction(code_action)
+
+        toolbar.addSeparator()
+
+        clear_format_action = QAction("Clear", self)
+        clear_format_action.setToolTip("Clear formatting")
+        clear_format_action.triggered.connect(self._clear_formatting)
+        toolbar.addAction(clear_format_action)
+
         root.addWidget(toolbar)
 
         # --- Body ----------------------------------------------------------
@@ -136,11 +185,12 @@ class EditorWidget(QWidget):
         self.setEnabled(False)
 
     # ------------------------------------------------------------- content
-    def load_entry(self, title: str, markdown: str):
+    def load_entry(self, title: str, markdown: str, tags: list[str] | None = None):
         self._loading = True
         self.setEnabled(True)
         self.title_edit.setText(title)
         self.body.setMarkdown(markdown)
+        self.tag_input.set_tags(tags or [])
         self.status_label.setText("")
         self._loading = False
 
@@ -150,6 +200,7 @@ class EditorWidget(QWidget):
         self.title_edit.clear()
         self.body.clear()
         self.body.setFontPointSize(self._default_font_size)
+        self.tag_input.clear_tags()
         self.status_label.setText("")
         self._loading = False
 
@@ -158,6 +209,12 @@ class EditorWidget(QWidget):
 
     def current_markdown(self) -> str:
         return self.body.toMarkdown()
+
+    def current_tags(self) -> list[str]:
+        return self.tag_input.get_tags()
+
+    def set_available_tags(self, tags: list[str]):
+        self.tag_input.set_available_tags(tags)
 
     def set_autosave_delay(self, delay_ms: int):
         self._autosave_delay_ms = max(200, int(delay_ms))
@@ -173,7 +230,7 @@ class EditorWidget(QWidget):
         self._autosave_timer.start(self._autosave_delay_ms)
 
     def _do_autosave(self):
-        self.saveRequested.emit(self.current_title(), self.current_markdown())
+        self.saveRequested.emit(self.current_title(), self.current_markdown(), self.current_tags())
         self.status_label.setText("All changes saved locally")
 
     # ---------------------------------------------------------- formatting
@@ -231,6 +288,53 @@ class EditorWidget(QWidget):
             fmt = QTextCharFormat()
             fmt.setForeground(color)
             self._merge_format(fmt)
+
+    def _pick_highlight(self):
+        color = QColorDialog.getColor(QColor(HIGHLIGHT_SWATCHES[0]), self, "Highlight Color")
+        if color.isValid():
+            fmt = QTextCharFormat()
+            fmt.setBackground(color)
+            self._merge_format(fmt)
+
+    def _apply_font_family(self, font: QFont):
+        fmt = QTextCharFormat()
+        fmt.setFontFamilies([font.family()])
+        self._merge_format(fmt)
+
+    def _toggle_quote(self, checked: bool):
+        cursor = self.body.textCursor()
+
+        # mergeBlockFormat already applies to every block the selection
+        # touches, so a multi-line selection quotes all of its lines.
+        block_fmt = cursor.blockFormat()
+        block_fmt.setLeftMargin(24 if checked else 0)
+        block_fmt.setIndent(1 if checked else 0)
+        cursor.mergeBlockFormat(block_fmt)
+
+        if not cursor.hasSelection():
+            cursor.select(QTextCursor.SelectionType.LineUnderCursor)
+        char_fmt = QTextCharFormat()
+        char_fmt.setFontItalic(checked)
+        char_fmt.setForeground(QColor("#B08498" if checked else "#7A4A5C"))
+        cursor.mergeCharFormat(char_fmt)
+        self.body.mergeCurrentCharFormat(char_fmt)
+
+    def _toggle_code(self, checked: bool):
+        fmt = QTextCharFormat()
+        fmt.setFontFamilies(["Consolas", "Courier New", "monospace"])
+        fmt.setBackground(QColor("#FFF0F5") if checked else QColor(0, 0, 0, 0))
+        self._merge_format(fmt)
+
+    def _clear_formatting(self):
+        cursor = self.body.textCursor()
+        if not cursor.hasSelection():
+            cursor.select(QTextCursor.SelectionType.LineUnderCursor)
+        blank = QTextCharFormat()
+        cursor.setCharFormat(blank)
+        block_fmt = cursor.blockFormat()
+        block_fmt.setLeftMargin(0)
+        block_fmt.setIndent(0)
+        cursor.mergeBlockFormat(block_fmt)
 
 
 def _qt_align_left():

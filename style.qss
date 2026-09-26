@@ -9,7 +9,27 @@ QMainWindow, QWidget {
 }
 
 #CoverOverlay {
-    background-color: #FFD1DC;
+    background: transparent;
+}
+
+#CoverPanelLeft {
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 1, y2: 1,
+        stop: 0 #FFE4EC,
+        stop: 0.5 #FFC7D6,
+        stop: 1 #F5A9C0
+    );
+    border-right: 2px solid #E6899E;
+}
+
+#CoverPanelRight {
+    background: qlineargradient(
+        x1: 1, y1: 0, x2: 0, y2: 1,
+        stop: 0 #FFE4EC,
+        stop: 0.5 #FFC7D6,
+        stop: 1 #F5A9C0
+    );
+    border-left: 2px solid #E6899E;
 }
 
 /* --- The journal "cover" card that floats above the wood table --- */
@@ -137,6 +157,48 @@ QToolBar#FormatToolbar {
     border-bottom: 1px dotted #E6B8B8;
     padding: 4px;
     spacing: 4px;
+}
+
+/* --- Tags --- */
+#TagInputWidget {
+    background-color: #FFF8FA;
+    border-bottom: 1px dotted #E6B8B8;
+}
+
+#TagChip {
+    background-color: #FFD1DC;
+    border: 1px solid #E6899E;
+    border-radius: 10px;
+}
+
+QLineEdit#TagChipLabel {
+    background: transparent;
+    border: none;
+    color: #7A4A5C;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 0;
+}
+
+QPushButton#TagChipClose {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #7A4A5C;
+    font-weight: bold;
+    padding: 0;
+}
+
+QPushButton#TagChipClose:hover {
+    background-color: #F5A9C0;
+}
+
+QLineEdit#TagEntryField {
+    background-color: #FFFDD0;
+    border: 1px dashed #E6B8B8;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 12px;
 }
 
 QLabel#SaveStatus {

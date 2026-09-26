@@ -24,6 +24,7 @@ identical while swapping the implementation.
 
 import base64
 import hashlib
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -34,6 +35,11 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 PBKDF2_ITERATIONS = 100_000
 VERIFIER_PLAINTEXT = b"pink-journal-ok"
+
+# Seeded the first time a vault is created, so the tag field isn't empty
+# on day one. The user can rename/delete/add to these freely afterwards —
+# this list is just a starting point, not a fixed vocabulary.
+DEFAULT_TAGS = ["#drama", "#boyfriend", "#work", "#family", "#vent", "#good day"]
 
 
 class WrongPassphraseError(Exception):
@@ -60,11 +66,22 @@ class DatabaseManager:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
+                tags TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.conn.commit()
+        self._ensure_tags_column()
+
+    def _ensure_tags_column(self):
+        """Older vaults were created before entries had tags — add the
+        column in place so existing entries keep working."""
+        cur = self.conn.execute("PRAGMA table_info(journals)")
+        columns = {row[1] for row in cur.fetchall()}
+        if "tags" not in columns:
+            self.conn.execute("ALTER TABLE journals ADD COLUMN tags TEXT")
+            self.conn.commit()
 
     def is_new_vault(self) -> bool:
         cur = self.conn.execute("SELECT value FROM meta WHERE key = 'salt'")
@@ -95,6 +112,10 @@ class DatabaseManager:
         self.conn.execute(
             "INSERT INTO meta (key, value) VALUES ('verifier', ?)",
             (verifier,),
+        )
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('tags', ?)",
+            (self._enc(json.dumps(DEFAULT_TAGS)),),
         )
         self.conn.commit()
 
@@ -131,6 +152,17 @@ class DatabaseManager:
     def _dec(self, ciphertext: str) -> str:
         return self.fernet.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
 
+    def _enc_tags(self, tags: list[str]) -> str:
+        return self._enc(json.dumps(list(tags)))
+
+    def _dec_tags(self, ciphertext) -> list[str]:
+        if not ciphertext:
+            return []
+        try:
+            return json.loads(self._dec(ciphertext))
+        except (InvalidToken, json.JSONDecodeError):
+            return []
+
     def list_journals(self):
         """Returns [(id, title, updated_at), ...] newest first, decrypted."""
         self._require_unlocked()
@@ -146,13 +178,15 @@ class DatabaseManager:
             results.append((jid, title, updated_at))
         return results
 
-    def create_journal(self, title: str = "Untitled Entry", content: str = "") -> int:
+    def create_journal(
+        self, title: str = "Untitled Entry", content: str = "", tags: list[str] | None = None
+    ) -> int:
         self._require_unlocked()
         now = datetime.now(timezone.utc).isoformat()
         cur = self.conn.execute(
-            "INSERT INTO journals (title, content, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?)",
-            (self._enc(title), self._enc(content), now, now),
+            "INSERT INTO journals (title, content, tags, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (self._enc(title), self._enc(content), self._enc_tags(tags or []), now, now),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -160,25 +194,59 @@ class DatabaseManager:
     def get_journal(self, journal_id: int):
         self._require_unlocked()
         cur = self.conn.execute(
-            "SELECT title, content FROM journals WHERE id = ?", (journal_id,)
+            "SELECT title, content, tags FROM journals WHERE id = ?", (journal_id,)
         )
         row = cur.fetchone()
         if row is None:
             return None
-        return {"title": self._dec(row[0]), "content": self._dec(row[1])}
+        return {
+            "title": self._dec(row[0]),
+            "content": self._dec(row[1]),
+            "tags": self._dec_tags(row[2]),
+        }
 
-    def update_journal(self, journal_id: int, title: str, content: str):
+    def update_journal(self, journal_id: int, title: str, content: str, tags: list[str] | None = None):
         self._require_unlocked()
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
-            "UPDATE journals SET title = ?, content = ?, updated_at = ? WHERE id = ?",
-            (self._enc(title), self._enc(content), now, journal_id),
+            "UPDATE journals SET title = ?, content = ?, tags = ?, updated_at = ? WHERE id = ?",
+            (self._enc(title), self._enc(content), self._enc_tags(tags or []), now, journal_id),
         )
         self.conn.commit()
 
     def delete_journal(self, journal_id: int):
         self._require_unlocked()
         self.conn.execute("DELETE FROM journals WHERE id = ?", (journal_id,))
+        self.conn.commit()
+
+    # ------------------------------------------------------------- tags
+    def list_tags(self) -> list[str]:
+        """The vault-wide set of known tags (defaults + anything the user
+        has typed in that wasn't already there)."""
+        self._require_unlocked()
+        cur = self.conn.execute("SELECT value FROM meta WHERE key = 'tags'")
+        row = cur.fetchone()
+        if row is None:
+            return list(DEFAULT_TAGS)
+        try:
+            return json.loads(self._dec(row[0]))
+        except (InvalidToken, json.JSONDecodeError):
+            return list(DEFAULT_TAGS)
+
+    def add_tag(self, tag: str):
+        """Adds a new tag to the vault-wide list if it isn't already there.
+        No-op if it exists (case-insensitively)."""
+        self._require_unlocked()
+        tags = self.list_tags()
+        if tag.lower() in (t.lower() for t in tags):
+            return
+        tags.append(tag)
+        enc = self._enc_tags(tags)
+        cur = self.conn.execute("SELECT 1 FROM meta WHERE key = 'tags'")
+        if cur.fetchone() is None:
+            self.conn.execute("INSERT INTO meta (key, value) VALUES ('tags', ?)", (enc,))
+        else:
+            self.conn.execute("UPDATE meta SET value = ? WHERE key = 'tags'", (enc,))
         self.conn.commit()
 
     def close(self):

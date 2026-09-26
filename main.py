@@ -158,6 +158,8 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._apply_settings_to_editor()
+        self.editor.newTagCreated.connect(self._on_tag_created)
+        self.editor.set_available_tags(self.db.list_tags())
 
         self._reload_journal_list()
         self._layout_card_and_ribbon()
@@ -240,7 +242,7 @@ class MainWindow(QMainWindow):
         if entry is None:
             return
         self.current_journal_id = jid
-        self.editor.load_entry(entry["title"], entry["content"])
+        self.editor.load_entry(entry["title"], entry["content"], entry.get("tags", []))
 
     def _on_new_entry(self):
         new_id = self.db.create_journal(title="Untitled Entry", content="")
@@ -259,14 +261,19 @@ class MainWindow(QMainWindow):
             self.db.delete_journal(self.current_journal_id)
             self._reload_journal_list()
 
-    def _on_save_requested(self, title: str, markdown: str):
+    def _on_save_requested(self, title: str, markdown: str, tags: list):
         if self.current_journal_id is None:
             return
-        self.db.update_journal(self.current_journal_id, title, markdown)
+        self.db.update_journal(self.current_journal_id, title, markdown, tags)
         # Keep sidebar title in sync without losing selection.
         current_item = self.journal_list.currentItem()
         if current_item is not None:
             current_item.setText(title or "Untitled Entry")
+
+    def _on_tag_created(self, tag: str):
+        # Persist the newly-coined tag to the vault-wide list so it shows
+        # up as a suggestion for every other entry from now on.
+        self.db.add_tag(tag)
 
 
 def load_stylesheet(app: QApplication):

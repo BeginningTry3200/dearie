@@ -1,14 +1,23 @@
 """
 animation.py — Opening "journal cover" animation overlay.
 
-Simulates a cover flipping open by animating a horizontal squash
-(QPropertyAnimation on geometry, easing InOutQuad) combined with an
-opacity fade-out (QGraphicsOpacityEffect), then removes itself and
-emits `animationFinished`.
+Two pink cover panels sit over the main window like a closed book. After
+a brief beat, they swing open — the left panel slides off to the left,
+the right panel slides off to the right — revealing the real interface
+underneath, then the whole overlay fades and removes itself, emitting
+`animationFinished`.
 """
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, Signal
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import (
+    QEasingCurve,
+    QParallelAnimationGroup,
+    QPropertyAnimation,
+    QRect,
+    QTimer,
+    Qt,
+    Signal,
+)
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QWidget
 
 from version import APP_NAME
 
@@ -21,19 +30,27 @@ class CoverAnimationWidget(QWidget):
         self.duration_ms = duration_ms
         self.setObjectName("CoverOverlay")
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        title = QLabel(APP_NAME)
-        title.setObjectName("CoverTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
+        # --- The two cover halves, like a book lying closed. ---------------
+        self.left_panel = QWidget(self)
+        self.left_panel.setObjectName("CoverPanelLeft")
 
-        self._opacity_effect = QGraphicsOpacityEffect(self)
-        self.setGraphicsEffect(self._opacity_effect)
-        self._opacity_effect.setOpacity(1.0)
+        self.right_panel = QWidget(self)
+        self.right_panel.setObjectName("CoverPanelRight")
 
-        self._geo_anim = None
-        self._opacity_anim = None
+        # --- Title, centered across the seam, on top of both panels. -------
+        self.title_label = QLabel(APP_NAME, self)
+        self.title_label.setObjectName("CoverTitle")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._title_opacity = QGraphicsOpacityEffect(self.title_label)
+        self.title_label.setGraphicsEffect(self._title_opacity)
+        self._title_opacity.setOpacity(1.0)
+
+        self._overlay_opacity = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._overlay_opacity)
+        self._overlay_opacity.setOpacity(1.0)
+
+        self._anims = []
 
     def play(self):
         if not self.parent():
@@ -42,28 +59,71 @@ class CoverAnimationWidget(QWidget):
         full_rect = self.parent().rect()
         self.setGeometry(full_rect)
 
-        # Phase 1: "cover" shrinks horizontally toward the center, as if
-        # swinging open on a vertical spine — simulated via width squash.
-        start_rect = QRect(full_rect)
-        mid_rect = QRect(full_rect.center().x(), full_rect.y(), 0, full_rect.height())
+        width = full_rect.width()
+        height = full_rect.height()
+        half_w = width // 2
 
-        self._geo_anim = QPropertyAnimation(self, b"geometry")
-        self._geo_anim.setDuration(int(self.duration_ms * 0.75))
-        self._geo_anim.setStartValue(start_rect)
-        self._geo_anim.setEndValue(mid_rect)
-        self._geo_anim.setEasingCurve(QEasingCurve.InOutQuad)
+        left_closed = QRect(0, 0, half_w, height)
+        right_closed = QRect(half_w, 0, width - half_w, height)
+        left_open = QRect(-half_w, 0, half_w, height)
+        right_open = QRect(width, 0, width - half_w, height)
 
-        # Phase 2: fade the remainder out.
-        self._opacity_anim = QPropertyAnimation(self._opacity_effect, b"opacity")
-        self._opacity_anim.setDuration(int(self.duration_ms * 0.4))
-        self._opacity_anim.setStartValue(1.0)
-        self._opacity_anim.setEndValue(0.0)
-        self._opacity_anim.setEasingCurve(QEasingCurve.InOutQuad)
+        self.left_panel.setGeometry(left_closed)
+        self.right_panel.setGeometry(right_closed)
+        self.left_panel.show()
+        self.right_panel.show()
 
-        self._geo_anim.finished.connect(self._opacity_anim.start)
-        self._opacity_anim.finished.connect(self._finish)
+        self.title_label.setGeometry(full_rect)
+        self._title_opacity.setOpacity(1.0)
+        self._overlay_opacity.setOpacity(1.0)
 
-        self._geo_anim.start()
+        hold_ms = int(self.duration_ms * 0.2)
+        open_ms = int(self.duration_ms * 0.55)
+        fade_ms = int(self.duration_ms * 0.35)
+
+        # Phase 1: title fades slightly ahead of the panels opening, so it
+        # doesn't look like it's being torn in half at the seam.
+        title_fade = QPropertyAnimation(self._title_opacity, b"opacity")
+        title_fade.setDuration(open_ms)
+        title_fade.setStartValue(1.0)
+        title_fade.setEndValue(0.0)
+        title_fade.setEasingCurve(QEasingCurve.Type.InQuad)
+
+        # Phase 2: the two covers swing open like a book, sliding fully
+        # off-screen on either side.
+        left_anim = QPropertyAnimation(self.left_panel, b"geometry")
+        left_anim.setDuration(open_ms)
+        left_anim.setStartValue(left_closed)
+        left_anim.setEndValue(left_open)
+        left_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        right_anim = QPropertyAnimation(self.right_panel, b"geometry")
+        right_anim.setDuration(open_ms)
+        right_anim.setStartValue(right_closed)
+        right_anim.setEndValue(right_open)
+        right_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        open_group = QParallelAnimationGroup(self)
+        open_group.addAnimation(title_fade)
+        open_group.addAnimation(left_anim)
+        open_group.addAnimation(right_anim)
+
+        # Phase 3: fade the whole (now-empty) overlay out and remove it, so
+        # nothing lingers even if the panels ended up slightly off-geometry.
+        overlay_fade = QPropertyAnimation(self._overlay_opacity, b"opacity")
+        overlay_fade.setDuration(fade_ms)
+        overlay_fade.setStartValue(1.0)
+        overlay_fade.setEndValue(0.0)
+        overlay_fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        self._anims = [title_fade, left_anim, right_anim, open_group, overlay_fade]
+
+        overlay_fade.finished.connect(self._finish)
+        open_group.finished.connect(overlay_fade.start)
+
+        # Hold the closed cover on screen briefly before it opens, so the
+        # title has a beat to register before things start moving.
+        QTimer.singleShot(hold_ms, open_group.start)
 
     def _finish(self):
         self.animationFinished.emit()
