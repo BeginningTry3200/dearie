@@ -1,0 +1,169 @@
+/* style.qss — Dearie pastel coquette theme */
+
+* {
+    font-family: 'Comfortaa', 'Nunito', 'Segoe UI', sans-serif;
+}
+
+QMainWindow, QWidget {
+    color: #7A4A5C;
+}
+
+#CoverOverlay {
+    background-color: #FFD1DC;
+}
+
+/* --- The journal "cover" card that floats above the wood table --- */
+#JournalCard {
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 0.3, y2: 1,
+        stop: 0 #FFE4EC,
+        stop: 0.5 #FFC7D6,
+        stop: 1 #F5A9C0
+    );
+    border: 1px solid #E6899E;
+    border-radius: 22px;
+}
+
+#CoverTitle {
+    color: #7A4A5C;
+    font-size: 32px;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+/* --- Menu bar --- */
+QMenuBar {
+    background-color: #FFE4EC;
+    color: #7A4A5C;
+    border-bottom: 1px dotted #E6B8B8;
+    padding: 2px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+
+QMenuBar::item:selected {
+    background-color: #FFD1DC;
+}
+
+QMenu {
+    background-color: #FFF8FA;
+    border: 1px solid #E6B8B8;
+    border-radius: 8px;
+    padding: 4px;
+    color: #7A4A5C;
+}
+
+QMenu::item {
+    padding: 6px 20px;
+    border-radius: 6px;
+}
+
+QMenu::item:selected {
+    background-color: #FFD1DC;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #E6B8B8;
+    margin: 4px 6px;
+}
+
+/* --- Sidebar --- */
+QListWidget#JournalList {
+    background-color: #FFF0F5;
+    border: none;
+    border-right: 2px dashed #E6B8B8;
+    padding: 8px;
+    outline: none;
+}
+
+QListWidget#JournalList::item {
+    background-color: #FFFDD0;
+    border: 1px dotted #E6B8B8;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 6px;
+}
+
+QListWidget#JournalList::item:selected {
+    background-color: #FFD1DC;
+    border: 1px solid #D46A8C;
+    color: #5A2A3A;
+}
+
+/* --- Buttons --- */
+QPushButton {
+    background-color: #FFD1DC;
+    border: 1px solid #E6B8B8;
+    border-radius: 12px;
+    padding: 6px 14px;
+    color: #7A4A5C;
+}
+
+QPushButton:hover {
+    background-color: #FFC0CB;
+}
+
+QPushButton:pressed {
+    background-color: #F5A9BC;
+}
+
+/* --- Editor --- */
+QLineEdit#EntryTitle {
+    background-color: #FFFDD0;
+    border: none;
+    border-bottom: 2px dashed #E6B8B8;
+    padding: 10px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #7A4A5C;
+}
+
+QTextEdit#EntryBody {
+    background-color: #FFFDD0;
+    border: none;
+    padding: 16px;
+    font-size: 14px;
+    line-height: 150%;
+    selection-background-color: #FFD1DC;
+}
+
+QToolBar#FormatToolbar {
+    background-color: #FFE4EC;
+    border-bottom: 1px dotted #E6B8B8;
+    padding: 4px;
+    spacing: 4px;
+}
+
+QLabel#SaveStatus {
+    color: #B08498;
+    font-style: italic;
+    padding: 4px 10px;
+}
+
+/* --- Dialogs --- */
+QDialog {
+    background-color: #FFF0F5;
+}
+
+QMessageBox {
+    background-color: #FFF0F5;
+}
+
+QLineEdit {
+    border: 1px solid #E6B8B8;
+    border-radius: 8px;
+    padding: 6px;
+    background-color: #FFFDD0;
+}
+
+QComboBox, QSpinBox {
+    background-color: #FFFDD0;
+    border: 1px solid #E6B8B8;
+    border-radius: 8px;
+    padding: 2px 6px;
+}
