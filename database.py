@@ -67,21 +67,24 @@ class DatabaseManager:
                 title TEXT NOT NULL,
                 content TEXT NOT NULL,
                 tags TEXT,
+                mood TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         self.conn.commit()
-        self._ensure_tags_column()
+        self._ensure_columns()
 
-    def _ensure_tags_column(self):
-        """Older vaults were created before entries had tags — add the
-        column in place so existing entries keep working."""
+    def _ensure_columns(self):
+        """Older vaults were created before entries had tags/mood — add the
+        columns in place so existing entries keep working."""
         cur = self.conn.execute("PRAGMA table_info(journals)")
         columns = {row[1] for row in cur.fetchall()}
         if "tags" not in columns:
             self.conn.execute("ALTER TABLE journals ADD COLUMN tags TEXT")
-            self.conn.commit()
+        if "mood" not in columns:
+            self.conn.execute("ALTER TABLE journals ADD COLUMN mood TEXT")
+        self.conn.commit()
 
     def is_new_vault(self) -> bool:
         cur = self.conn.execute("SELECT value FROM meta WHERE key = 'salt'")
@@ -163,30 +166,46 @@ class DatabaseManager:
         except (InvalidToken, json.JSONDecodeError):
             return []
 
+    def _enc_mood(self, mood: str | None) -> str:
+        return self._enc(mood or "")
+
+    def _dec_mood(self, ciphertext) -> str | None:
+        if not ciphertext:
+            return None
+        try:
+            decrypted = self._dec(ciphertext)
+        except InvalidToken:
+            return None
+        return decrypted or None
+
     def list_journals(self):
-        """Returns [(id, title, updated_at), ...] newest first, decrypted."""
+        """Returns [(id, title, updated_at, mood), ...] newest first, decrypted."""
         self._require_unlocked()
         cur = self.conn.execute(
-            "SELECT id, title, updated_at FROM journals ORDER BY updated_at DESC"
+            "SELECT id, title, updated_at, mood FROM journals ORDER BY updated_at DESC"
         )
         results = []
-        for jid, enc_title, updated_at in cur.fetchall():
+        for jid, enc_title, updated_at, enc_mood in cur.fetchall():
             try:
                 title = self._dec(enc_title)
             except InvalidToken:
                 title = "(unreadable entry)"
-            results.append((jid, title, updated_at))
+            results.append((jid, title, updated_at, self._dec_mood(enc_mood)))
         return results
 
     def create_journal(
-        self, title: str = "Untitled Entry", content: str = "", tags: list[str] | None = None
+        self,
+        title: str = "Untitled Entry",
+        content: str = "",
+        tags: list[str] | None = None,
+        mood: str | None = None,
     ) -> int:
         self._require_unlocked()
         now = datetime.now(timezone.utc).isoformat()
         cur = self.conn.execute(
-            "INSERT INTO journals (title, content, tags, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (self._enc(title), self._enc(content), self._enc_tags(tags or []), now, now),
+            "INSERT INTO journals (title, content, tags, mood, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (self._enc(title), self._enc(content), self._enc_tags(tags or []), self._enc_mood(mood), now, now),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -194,7 +213,7 @@ class DatabaseManager:
     def get_journal(self, journal_id: int):
         self._require_unlocked()
         cur = self.conn.execute(
-            "SELECT title, content, tags FROM journals WHERE id = ?", (journal_id,)
+            "SELECT title, content, tags, mood FROM journals WHERE id = ?", (journal_id,)
         )
         row = cur.fetchone()
         if row is None:
@@ -203,14 +222,22 @@ class DatabaseManager:
             "title": self._dec(row[0]),
             "content": self._dec(row[1]),
             "tags": self._dec_tags(row[2]),
+            "mood": self._dec_mood(row[3]),
         }
 
-    def update_journal(self, journal_id: int, title: str, content: str, tags: list[str] | None = None):
+    def update_journal(
+        self,
+        journal_id: int,
+        title: str,
+        content: str,
+        tags: list[str] | None = None,
+        mood: str | None = None,
+    ):
         self._require_unlocked()
         now = datetime.now(timezone.utc).isoformat()
         self.conn.execute(
-            "UPDATE journals SET title = ?, content = ?, tags = ?, updated_at = ? WHERE id = ?",
-            (self._enc(title), self._enc(content), self._enc_tags(tags or []), now, journal_id),
+            "UPDATE journals SET title = ?, content = ?, tags = ?, mood = ?, updated_at = ? WHERE id = ?",
+            (self._enc(title), self._enc(content), self._enc_tags(tags or []), self._enc_mood(mood), now, journal_id),
         )
         self.conn.commit()
 

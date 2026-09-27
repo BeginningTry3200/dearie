@@ -10,7 +10,8 @@ import os
 import sys
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 from animation import CoverAnimationWidget
 from database import DatabaseManager
 from editor import EditorWidget
+from mood import MOOD_EMOJI
 from settings import AppSettings, SETTINGS_FILENAME, SettingsDialog
 from theming import JournalCard, RibbonBookmark, TableBackgroundWidget
 from version import APP_NAME, __version__
@@ -216,8 +218,9 @@ class MainWindow(QMainWindow):
         self.journal_list.clear()
         entries = self.db.list_journals()
         selected_row = -1
-        for row, (jid, title, updated_at) in enumerate(entries):
-            item = QListWidgetItem(title or "Untitled Entry")
+        for row, (jid, title, updated_at, mood) in enumerate(entries):
+            prefix = f"{MOOD_EMOJI[mood]} " if mood in MOOD_EMOJI else ""
+            item = QListWidgetItem(prefix + (title or "Untitled Entry"))
             item.setData(Qt.ItemDataRole.UserRole, jid)
             self.journal_list.addItem(item)
             if select_id is not None and jid == select_id:
@@ -242,7 +245,7 @@ class MainWindow(QMainWindow):
         if entry is None:
             return
         self.current_journal_id = jid
-        self.editor.load_entry(entry["title"], entry["content"], entry.get("tags", []))
+        self.editor.load_entry(entry["title"], entry["content"], entry.get("tags", []), entry.get("mood"))
 
     def _on_new_entry(self):
         new_id = self.db.create_journal(title="Untitled Entry", content="")
@@ -261,14 +264,15 @@ class MainWindow(QMainWindow):
             self.db.delete_journal(self.current_journal_id)
             self._reload_journal_list()
 
-    def _on_save_requested(self, title: str, markdown: str, tags: list):
+    def _on_save_requested(self, title: str, markdown: str, tags: list, mood):
         if self.current_journal_id is None:
             return
-        self.db.update_journal(self.current_journal_id, title, markdown, tags)
-        # Keep sidebar title in sync without losing selection.
+        self.db.update_journal(self.current_journal_id, title, markdown, tags, mood)
+        # Keep sidebar title (and mood prefix) in sync without losing selection.
         current_item = self.journal_list.currentItem()
         if current_item is not None:
-            current_item.setText(title or "Untitled Entry")
+            prefix = f"{MOOD_EMOJI[mood]} " if mood in MOOD_EMOJI else ""
+            current_item.setText(prefix + (title or "Untitled Entry"))
 
     def _on_tag_created(self, tag: str):
         # Persist the newly-coined tag to the vault-wide list so it shows
@@ -281,6 +285,48 @@ def load_stylesheet(app: QApplication):
     if os.path.exists(qss_path):
         with open(qss_path, "r", encoding="utf-8") as f:
             app.setStyleSheet(f.read())
+
+
+def load_app_icon(base_dir: str) -> QIcon:
+    """Loads icon.svg and hands back a QIcon with a few rasterized sizes
+    baked in, rather than a single bare SVG. Some places Qt shows an icon
+    (the Windows taskbar and alt-tab switcher in particular) pick a size
+    that a lone vector source doesn't always resolve cleanly, so we render
+    it at the common sizes ourselves and let QIcon pick the best match."""
+    icon_path = os.path.join(base_dir, "icon.svg")
+    icon = QIcon()
+    if os.path.exists(icon_path):
+        renderer = QSvgRenderer(icon_path)
+        if renderer.isValid():
+            for size in (16, 24, 32, 48, 64, 128, 256):
+                pixmap = QPixmap(size, size)
+                pixmap.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(pixmap)
+                renderer.render(painter)
+                painter.end()
+                icon.addPixmap(pixmap)
+        else:
+            # Fallback: let QIcon try to load it directly (works if a
+            # system SVG icon-engine plugin is present).
+            icon = QIcon(icon_path)
+    return icon
+
+
+def _set_windows_app_user_model_id():
+    # On Windows, the taskbar groups windows (and picks a taskbar icon) by
+    # the process's "App User Model ID", which defaults to the Python
+    # interpreter's own ID rather than ours. Without this, a packaged
+    # Dearie build can show Python's generic icon in the taskbar even
+    # though setWindowIcon() is set correctly on the window itself.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                f"{APP_NAME}.{APP_NAME}.{__version__}"
+            )
+        except Exception:
+            pass
 
 
 def unlock_database(app: QApplication, db_path: str) -> DatabaseManager | None:
@@ -303,12 +349,16 @@ def unlock_database(app: QApplication, db_path: str) -> DatabaseManager | None:
 
 
 def main():
+    _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
     load_stylesheet(app)
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     db_path = os.path.join(base_dir, DB_FILENAME)
     settings_path = os.path.join(base_dir, SETTINGS_FILENAME)
+
+    app_icon = load_app_icon(base_dir)
+    app.setWindowIcon(app_icon)
 
     app_settings = AppSettings.load(settings_path)
 
@@ -317,6 +367,7 @@ def main():
         sys.exit(0)
 
     window = MainWindow(db, app_settings, settings_path)
+    window.setWindowIcon(app_icon)
     window.show()
 
     if app_settings.show_opening_animation:

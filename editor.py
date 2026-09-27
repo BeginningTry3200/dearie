@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from tags import TagInputWidget
+from mood import MoodTrackerWidget
 
 AUTOSAVE_DEBOUNCE_MS = 1000
 
@@ -29,11 +30,11 @@ HIGHLIGHT_SWATCHES = ["#FFF3B0", "#FFD1DC", "#C7F0D8", "#D6E4FF"]
 
 class EditorWidget(QWidget):
     """Emits contentDirty() immediately on edit, and saveRequested(title,
-    markdown, tags) after the debounce window elapses with no further
-    edits. Also emits newTagCreated(tag) whenever the tag field is used
-    to coin a tag that isn't in the vault-wide tag list yet."""
+    markdown, tags, mood) after the debounce window elapses with no
+    further edits. Also emits newTagCreated(tag) whenever the tag field
+    is used to coin a tag that isn't in the vault-wide tag list yet."""
 
-    saveRequested = Signal(str, str, list)
+    saveRequested = Signal(str, str, list, object)
     newTagCreated = Signal(str)
 
     def __init__(self, parent=None):
@@ -176,6 +177,9 @@ class EditorWidget(QWidget):
 
         # --- Status bar ------------------------------------------------
         status_row = QHBoxLayout()
+        self.mood_tracker = MoodTrackerWidget()
+        self.mood_tracker.moodChanged.connect(self._on_mood_changed)
+        status_row.addWidget(self.mood_tracker)
         self.status_label = QLabel("")
         self.status_label.setObjectName("SaveStatus")
         status_row.addStretch(1)
@@ -185,12 +189,13 @@ class EditorWidget(QWidget):
         self.setEnabled(False)
 
     # ------------------------------------------------------------- content
-    def load_entry(self, title: str, markdown: str, tags: list[str] | None = None):
+    def load_entry(self, title: str, markdown: str, tags: list[str] | None = None, mood: str | None = None):
         self._loading = True
         self.setEnabled(True)
         self.title_edit.setText(title)
         self.body.setMarkdown(markdown)
         self.tag_input.set_tags(tags or [])
+        self.mood_tracker.set_mood(mood)
         self.status_label.setText("")
         self._loading = False
 
@@ -201,6 +206,7 @@ class EditorWidget(QWidget):
         self.body.clear()
         self.body.setFontPointSize(self._default_font_size)
         self.tag_input.clear_tags()
+        self.mood_tracker.set_mood(None)
         self.status_label.setText("")
         self._loading = False
 
@@ -212,6 +218,9 @@ class EditorWidget(QWidget):
 
     def current_tags(self) -> list[str]:
         return self.tag_input.get_tags()
+
+    def current_mood(self) -> str | None:
+        return self.mood_tracker.get_mood()
 
     def set_available_tags(self, tags: list[str]):
         self.tag_input.set_available_tags(tags)
@@ -229,16 +238,24 @@ class EditorWidget(QWidget):
         self.status_label.setText("Saving...")
         self._autosave_timer.start(self._autosave_delay_ms)
 
+    def _on_mood_changed(self, _mood):
+        self._on_changed()
+
     def _do_autosave(self):
-        self.saveRequested.emit(self.current_title(), self.current_markdown(), self.current_tags())
+        self.saveRequested.emit(
+            self.current_title(), self.current_markdown(), self.current_tags(), self.current_mood()
+        )
         self.status_label.setText("All changes saved locally")
 
     # ---------------------------------------------------------- formatting
     def _merge_format(self, fmt: QTextCharFormat):
-        cursor = self.body.textCursor()
-        if not cursor.hasSelection():
-            cursor.select(QTextCursor.SelectionType.WordUnderCursor)
-        cursor.mergeCharFormat(fmt)
+        # QTextEdit.mergeCurrentCharFormat does exactly the two things we
+        # want, natively: if there's a selection, the format is applied to
+        # the selected text; if there isn't, it's stashed as the format
+        # that will be used for whatever gets typed next, without touching
+        # any existing text. (The previous version selected the word under
+        # the cursor when nothing was highlighted, which meant clicking a
+        # button with no selection silently reformatted that word.)
         self.body.mergeCurrentCharFormat(fmt)
 
     def _toggle_bold(self, checked: bool):

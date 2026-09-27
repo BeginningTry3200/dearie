@@ -17,6 +17,11 @@ you write is encrypted at rest behind a single master passphrase.
   tags (`#drama`, `#boyfriend`, `#work`, `#family`, `#vent`, `#good day`) are
   seeded on first launch; typing a tag that doesn't exist yet in the tag
   field creates it on the spot and adds it to the vault-wide suggestion list.
+- **Mood tracker** — a row of emoji buttons at the bottom of the editor lets
+  you tag an entry's mood (happy, calm, neutral, sad, angry, anxious, tired).
+  Click one to set it, click it again to clear it — an entry doesn't have to
+  have a mood at all. The current entry's mood emoji also shows next to its
+  title in the sidebar.
 - **Rich-text editor with autosave** — a formatting toolbar (bold/italic/
   underline/strikethrough, headings, lists, alignment, font family & size,
   text color, highlight, blockquote, inline code, clear formatting,
@@ -71,9 +76,10 @@ your existing entries cannot be decrypted.
 | File | Purpose |
 |---|---|
 | `main.py` | App entry point; wires together unlock, main window, sidebar, editor, and animation. |
-| `database.py` | Encrypted storage layer (SQLite + Fernet field encryption); also stores entry tags and the vault-wide tag list. |
+| `database.py` | Encrypted storage layer (SQLite + Fernet field encryption); also stores entry tags, mood, and the vault-wide tag list. |
 | `editor.py` | Rich-text/Markdown page editor with formatting toolbar and debounced autosave. |
 | `tags.py` | The tag chip row: removable chips, autocomplete, and on-the-fly tag creation. |
+| `mood.py` | The emoji mood-picker row at the bottom of the editor. |
 | `animation.py` | The opening two-panel "book cover" animation overlay. |
 | `theming.py` | Procedurally painted wood-table backdrop, journal cover card, and ribbon bookmark. |
 | `settings.py` | User-configurable settings (dataclass + JSON persistence) and the Settings dialog. |

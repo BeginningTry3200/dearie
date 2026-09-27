@@ -201,6 +201,37 @@ QLineEdit#TagEntryField {
     font-size: 12px;
 }
 
+/* --- Mood tracker --- */
+#MoodTracker {
+    background-color: #FFF8FA;
+    border-top: 1px dotted #E6B8B8;
+}
+
+QLabel#MoodLabel {
+    color: #B08498;
+    font-style: italic;
+    font-size: 12px;
+    padding-right: 4px;
+}
+
+QPushButton#MoodButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 15px;
+    font-size: 15px;
+    padding: 0;
+}
+
+QPushButton#MoodButton:hover {
+    background-color: #FFE4EC;
+    border: 1px solid #E6B8B8;
+}
+
+QPushButton#MoodButton:checked {
+    background-color: #FFD1DC;
+    border: 1px solid #D46A8C;
+}
+
 QLabel#SaveStatus {
     color: #B08498;
     font-style: italic;
